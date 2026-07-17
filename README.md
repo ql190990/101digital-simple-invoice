@@ -1,0 +1,376 @@
+# SimpleInvoice
+
+A full-stack invoicing application built for the **101 Digital** Full-Stack Engineer
+assessment. React + TypeScript frontend, NestJS + TypeScript REST API, PostgreSQL 16,
+Prisma, JWT auth — packaged so a reviewer can go from `git clone` to a working,
+seeded, logged-in app in one command.
+
+> **TL;DR for reviewers**
+> ```bash
+> docker compose up --build
+> ```
+> Then open **http://localhost:8080** and log in with:
+>
+> | Email | Password |
+> |---|---|
+> | `reviewer@101digital.io` | `Password123!` |
+>
+> Swagger API docs: **http://localhost:3000/api/docs**
+
+---
+
+## 1. Overview & architecture
+
+Three services orchestrated by Docker Compose. In the container setup, **nginx serves
+the built SPA and reverse-proxies `/api/*` to the backend**, so the browser talks to a
+single origin (no CORS, no build-time API URL baking).
+
+```
+                         ┌─────────────────────────────────────────────┐
+                         │                Browser (SPA)                 │
+                         │        React + Vite + Tailwind + RQ          │
+                         └───────────────┬─────────────────────────────┘
+                                         │  http://localhost:8080
+                                         ▼
+                         ┌─────────────────────────────────────────────┐
+                         │  frontend container (nginx :80)              │
+                         │  • serves static SPA bundle                  │
+                         │  • proxies /api/*  ──────────────┐           │
+                         └──────────────────────────────────┼──────────┘
+                                                            ▼
+                         ┌─────────────────────────────────────────────┐
+                         │  backend container (NestJS :3000)            │
+                         │  Controller → Service → Repository → Prisma  │
+                         │  Pure domain fns: totals, overdue derivation │
+                         │  JWT auth · ValidationPipe · Swagger /api/docs│
+                         └──────────────────────────────────┬──────────┘
+                                                            ▼
+                         ┌─────────────────────────────────────────────┐
+                         │  db container (postgres:16-alpine)           │
+                         │  pg_trgm GIN search · CHECK constraints       │
+                         │  named volume: postgres_data                 │
+                         └─────────────────────────────────────────────┘
+```
+
+### Backend layering (clean architecture)
+
+- **Controller** — HTTP routing + Swagger decorators only. No business logic, never
+  imports Prisma.
+- **Service** — orchestration: validates, calls pure domain functions, calls the
+  repository, maps DTOs.
+- **Repository** — the *only* layer that imports `PrismaService`. Owns query
+  translation (search / filter / sort / pagination).
+- **Domain** (`backend/src/invoices/domain/`) — pure, dependency-free functions
+  `calculateInvoiceTotals()` and `deriveInvoiceStatus()`. These hold the core
+  business rules and are unit-tested with no mocks and no DB.
+
+### Tech stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18 + TypeScript, Vite, React Router v6, TanStack Query, React Hook Form + Zod, Tailwind CSS |
+| Backend | NestJS 10 + TypeScript, Prisma 5, `class-validator`/`class-transformer`, `@nestjs/swagger`, `@nestjs/throttler`, Helmet |
+| Database | PostgreSQL 16 (`pg_trgm` extension) |
+| Auth | JWT access token (Passport), bcrypt password hashing |
+| Tests | Backend: Jest + Supertest · Frontend: Vitest + React Testing Library + MSW |
+| Monorepo | npm workspaces |
+
+---
+
+## 2. Running the app
+
+### Option A — Docker (recommended, zero manual steps)
+
+Requires Docker + Docker Compose.
+
+```bash
+git clone <repo-url> simple-invoice
+cd simple-invoice
+docker compose up --build
+```
+
+This will:
+1. Start PostgreSQL and wait until it is **healthy** (`pg_isready`).
+2. Start the backend, which on boot runs `prisma migrate deploy` and then **seeds**
+   the database (because `SEED_ON_BOOT=true` is the compose default).
+3. Start nginx serving the SPA and proxying `/api`.
+
+Open **http://localhost:8080** and log in.
+
+> No `.env` file is required for Docker — `docker-compose.yml` ships sensible
+> defaults for every value. To override anything (ports, JWT secret, timezone),
+> copy `.env.example` to `.env` and Compose will pick it up.
+
+To stop: `docker compose down` (add `-v` to also drop the database volume).
+
+### Option B — Local development (without Docker)
+
+Requires Node 20+ and a local PostgreSQL 16 (with permission to create the
+`pg_trgm` extension).
+
+```bash
+# 1. Install all workspaces
+npm install
+
+# 2. Configure environment
+cp .env.example .env
+#    Edit .env: set DATABASE_URL to your local Postgres, and set JWT_SECRET.
+
+# 3. Generate the Prisma client, apply migrations, and seed
+npm run prisma:generate
+npm run prisma:migrate --workspace backend   # runs `prisma migrate deploy`
+npm run seed
+
+# 4. Run backend + frontend together
+npm run dev
+```
+
+- Backend: http://localhost:3000 (Swagger at http://localhost:3000/api/docs)
+- Frontend (Vite dev server): http://localhost:5173 — it proxies `/api` to the
+  backend, so log in there with the same credentials.
+
+---
+
+## 3. Default login credentials
+
+| Email | Password |
+|---|---|
+| `reviewer@101digital.io` | `Password123!` |
+
+Seeded by `backend/prisma/seed.ts`. Configurable via `SEED_USER_EMAIL` /
+`SEED_USER_PASSWORD` env vars.
+
+---
+
+## 4. Seeding the database
+
+```bash
+npm run seed          # from the repo root (delegates to the backend workspace)
+```
+
+- **Idempotent**: the script truncates `invoice_items`, `invoices`, and `users`
+  (`TRUNCATE ... RESTART IDENTITY CASCADE`) then re-inserts, so re-running never
+  crashes on unique constraints (ADR D6).
+- Seeds **1 default user**, the **Appendix A anchor invoice**, and **40 generated
+  invoices** (41 total → ≥3 pages at the default page size of 10) with a balanced
+  spread of statuses, dates, amounts, currencies, and customers.
+- Uses a **fixed random seed** (mulberry32) so the dataset is reproducible.
+- In Docker, seeding also runs automatically on backend boot via the entrypoint when
+  `SEED_ON_BOOT=true` (the compose default).
+
+---
+
+## 5. Assumptions & design decisions
+
+Full rationale in [`docs/DECISIONS.md`](docs/DECISIONS.md). The most important ones:
+
+- **A1 — Paging shape (spec contradicts itself).** §2.3.1 specifies
+  `{ data, paging: { page, pageSize, total } }`; Appendix A shows
+  `{ pageNumber, pageSize, totalRecords }`. **§2.3.1 wins** — it is the normative API
+  contract; Appendix A is only a seed-data reference. Implemented `page`/`pageSize`/`total`.
+- **A3 — Overdue is derived, but filterable & sortable.** `Overdue` is never stored;
+  the DB holds only `Draft`/`Pending`/`Paid`. It is derived at read time and the
+  `?status=` filter uses a matching SQL predicate on the **effective** status, so what
+  you filter always equals what you see:
+  - `Overdue` → `status != 'Paid' AND dueDate < today`
+  - `Draft`   → `status = 'Draft'  AND dueDate >= today`
+  - `Pending` → `status = 'Pending' AND dueDate >= today`
+  - `Paid`    → `status = 'Paid'`
+- **A2 — No global `/api` prefix.** Routes are `/auth/login`, `/invoices`, … ; Swagger
+  is mounted separately at `/api/docs`.
+- **A4 — "today" is a date in one timezone.** `dueDate` is a `DATE`; comparisons are
+  date-only, using a configurable `APP_TIMEZONE` (default `UTC`) shared by the domain
+  function and the SQL predicate. Boundary tested: due **today** is *not* overdue.
+- **A5 — `taxPercent` persisted; discount is absolute.** Added a `taxPercent`
+  column so the input isn't lost. `discount`/`totalDiscount` is an absolute amount
+  (Appendix A: subtotal 2000, tax 200 = 10%, discount 20 = absolute).
+- **A6 — Customer embedded on Invoice (immutable snapshot).** An invoice is a
+  legal/accounting record; it must capture customer details as they were at issue
+  time. A normalised FK would let a later customer edit mutate historical invoices.
+- **A7 — Appendix A anchor** seeded as persisted `Pending` with its original past due
+  date (2026-07-03) so `Overdue` is *derived* (proving derivation works). Its
+  `createdBy` UUID is reused as the default user's id.
+- **A8 — Omitted fields.** `type: "INVOICE"` and `invoiceGrossTotal` (duplicates the
+  subtotal) are not modelled.
+- **A9 — Seed dates are relative to "today"** so all four statuses appear whenever the
+  reviewer runs it.
+- **A10 — Duplicate invoice number → `409 Conflict`** via a DB unique constraint
+  (race-free), mapping Prisma `P2002` to 409 (not 400 — it's a state conflict).
+- **A11 — JWT in `localStorage`.** *Tradeoff:* `localStorage` is XSS-readable; an
+  `httpOnly` cookie would be more secure but requires same-site/CSRF handling that is
+  disproportionate for this scope. Chosen consciously and documented.
+- **A12 — Money never touches JS floats.** All money is `numeric(12,2)` and computed
+  with `decimal.js` (Prisma `Decimal`); tax is rounded to 2dp before summing into the
+  total; decimals serialise as 2dp numbers.
+
+---
+
+## 6. Known limitations / consciously excluded
+
+Scope discipline is deliberate — the following are **intentionally out of scope** (not
+in the spec), and were excluded to keep the solution focused:
+
+- **No refresh tokens / token rotation.** Single short-lived access token only.
+- **No RBAC / roles / multi-tenancy.** Any authenticated user can read/create invoices.
+- **No password policy or MFA** (explicitly out of scope per the spec).
+- **No invoice edit/delete/payment endpoints.** The spec covers list/detail/create only.
+- **Create form supports exactly one line item** (per spec), though the schema and API
+  model a real one-to-many so multiple items are trivial to add later.
+- **JWT in `localStorage`** — see A11 tradeoff above.
+- **Seed uses truncate-then-insert**, so running it drops existing invoice/user data by
+  design (fine for a demo dataset; not a production migration strategy).
+- **No production TLS / secrets manager** — secrets come from env; in a real deployment
+  these would come from a managed secret store.
+
+---
+
+## 7. API summary
+
+Base URL: backend root (no `/api` prefix on routes). Full interactive docs at
+**`/api/docs`**.
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| POST | `/auth/login` | ✗ | Authenticate, return JWT |
+| GET | `/auth/me` | ✓ | Current authenticated user |
+| GET | `/invoices` | ✓ | List (search, filter, sort, pagination) |
+| GET | `/invoices/:id` | ✓ | Invoice detail |
+| POST | `/invoices` | ✓ | Create invoice (Draft, totals computed server-side) |
+| GET | `/health` | ✗ | Health check with DB connectivity |
+
+**`GET /invoices` query params:** `page` (default 1), `pageSize` (default 10, max 100),
+`sortBy` (`invoiceDate`|`dueDate`|`totalAmount`, default `invoiceDate`), `ordering`
+(`ASC`|`DESC`, default `DESC`), `status` (`Draft`|`Pending`|`Paid`|`Overdue`),
+`keyword` (partial, case-insensitive on invoice number OR customer name), `fromDate`,
+`toDate` (`YYYY-MM-DD`).
+
+**Response shape:**
+```json
+{ "data": [ ... ], "paging": { "page": 1, "pageSize": 10, "total": 41 } }
+```
+
+**Business logic (server-side only):**
+```
+subTotal      = Σ(quantity × rate)
+taxAmount     = round2(subTotal × taxPercent / 100)
+totalAmount   = subTotal + taxAmount − discount
+balanceAmount = totalAmount − totalPaid
+```
+
+**Error envelopes:**
+```json
+// Validation (400)
+{ "statusCode": 400, "message": ["dueDate must be on or after invoiceDate"], "error": "Bad Request" }
+// Other errors (e.g. 404)
+{ "statusCode": 404, "message": "Invoice not found", "error": "Not Found" }
+```
+
+---
+
+## 8. Exposed ports
+
+| Service | Container port | Host port (default) | Env override |
+|---|---|---|---|
+| Frontend (nginx) | 80 | **8080** | `FRONTEND_PORT` |
+| Backend (NestJS) | 3000 | **3000** | `BACKEND_PORT` |
+| PostgreSQL | 5432 | **5432** | `POSTGRES_PORT` |
+
+---
+
+## 9. Environment variables
+
+Copy `.env.example` → `.env`. All keys are documented there; summary:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | — | Prisma Postgres connection string |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `simpleinvoice` | DB credentials (compose) |
+| `BACKEND_PORT` | `3000` | API port |
+| `JWT_SECRET` | — | JWT signing secret (**required**, ≥16 chars) |
+| `JWT_EXPIRES_IN` | `3600` | Access-token TTL (seconds) |
+| `APP_TIMEZONE` | `UTC` | Timezone for date-only "today" comparisons |
+| `CORS_ORIGINS` | localhost list | CORS allow-list (unused behind nginx proxy) |
+| `MAX_PAGE_SIZE` | `100` | Pagination clamp |
+| `THROTTLE_TTL` / `THROTTLE_LIMIT` | `60` / `10` | Rate limiting window/limit |
+| `SEED_ON_BOOT` | `false` (`true` in compose) | Migrate + seed on backend startup |
+| `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` / `SEED_USER_FULLNAME` | reviewer account | Default seeded user |
+| `FRONTEND_PORT` | `8080` | SPA port |
+| `VITE_API_BASE_URL` | `/api` | SPA API base (relative; proxied) |
+
+The backend **validates env at startup** (`backend/src/config/env.validation.ts`) and
+fails loudly with a clear message if anything required is missing or malformed.
+
+---
+
+## 10. Running the tests
+
+```bash
+# Everything (backend unit + frontend)
+npm run test
+
+# Backend unit tests (Jest, with coverage)
+npm run test --workspace backend
+
+# Backend e2e (needs a reachable Postgres via DATABASE_URL + migrations applied)
+npm run test:e2e --workspace backend
+
+# Frontend tests (Vitest + RTL + MSW, with coverage)
+npm run test --workspace frontend
+
+# Lint & typecheck across both workspaces
+npm run lint
+npm run typecheck
+```
+
+**What's covered**
+- **Domain**: invoice total calculations (rounding, zero discount, default tax, multi-item,
+  float-safety), overdue derivation incl. the today/yesterday boundary and "Paid is never
+  Overdue", due-date validation.
+- **Service**: server-side total computation, unique-number → 409 mapping, not-found,
+  pageSize clamping, response envelope.
+- **E2E** (Supertest against a real Nest app): 401 without token → login (no
+  `passwordHash` leaked) → create invoice (Draft, server totals) → appears in list →
+  duplicate number 409 → `dueDate < invoiceDate` 400 with the spec message.
+- **Frontend**: login flow (client validation, success redirect, generic error), list
+  (search / filter / sort / pagination / navigation), create-invoice validation + live
+  totals preview.
+
+---
+
+## 11. Value-add (beyond the spec)
+
+- **GitHub Actions CI** (`.github/workflows/ci.yml`): install → lint → typecheck →
+  unit + e2e + frontend tests (with a Postgres service) → build → docker image builds.
+- **`GET /health`** with a real DB connectivity check.
+- **Request correlation IDs** + structured request logging.
+- **ESLint + Prettier** configured and passing across both workspaces.
+- **Test coverage** reported in the terminal (Jest `--coverage`, Vitest v8 coverage).
+- **`pg_trgm` GIN indexes** so `ILIKE` keyword search is index-backed, plus B-tree /
+  composite indexes on sort/filter columns and **CHECK constraints** as defence in depth.
+- **Lightweight ADRs** in `docs/DECISIONS.md`; a full traceability checklist in
+  `docs/REQUIREMENTS.md`; a plan in `docs/PLAN.md`.
+
+---
+
+## 12. Project structure
+
+```
+simple-invoice/
+├── backend/                # NestJS API
+│   ├── prisma/             # schema, migrations, seed.ts
+│   └── src/
+│       ├── auth/           # JWT login, guard, strategy
+│       ├── invoices/       # controller/service/repository + domain/ + dto/
+│       ├── users/          # user data access
+│       ├── common/         # filter, interceptor, middleware, validators, utils
+│       ├── config/         # env schema validation
+│       ├── health/         # GET /health
+│       └── prisma/         # PrismaModule/Service
+├── frontend/               # React SPA (Vite) + nginx.conf + Dockerfile
+│   └── src/                # pages, features, components, context, lib, test (MSW)
+├── docs/                   # REQUIREMENTS.md, PLAN.md, DECISIONS.md
+├── .github/workflows/      # CI
+├── docker-compose.yml
+├── .env.example
+└── package.json            # npm workspaces root
+```
