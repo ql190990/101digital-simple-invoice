@@ -1,0 +1,90 @@
+// SimpleInvoice Prisma schema.
+// Money columns are Decimal(12,2); taxPercent is Decimal(5,2) (see ADR A5).
+// Customer details are embedded on Invoice as an immutable snapshot (ADR A6).
+// pg_trgm GIN indexes and CHECK constraints are added via a raw-SQL migration
+// (Prisma does not model them declaratively).
+
+generator client {
+  provider      = "prisma-client-js"
+  // Include the Alpine (musl) OpenSSL 3.x engine so the same schema works both on
+  // the host (native) and inside the node:20-alpine containers.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum InvoiceStatus {
+  Draft
+  Pending
+  Paid
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  fullname     String
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  invoices     Invoice[]
+
+  @@map("users")
+}
+
+model Invoice {
+  invoiceId        String        @id @default(uuid()) @map("invoice_id") @db.Uuid
+  invoiceNumber    String        @unique @map("invoice_number")
+  invoiceReference String?       @map("invoice_reference")
+  invoiceDate      DateTime      @map("invoice_date") @db.Date
+  dueDate          DateTime      @map("due_date") @db.Date
+  currency         String
+  currencySymbol   String        @map("currency_symbol")
+  description      String?
+
+  // Embedded customer snapshot (ADR A6).
+  customerFullname String        @map("customer_fullname")
+  customerEmail    String        @map("customer_email")
+  customerMobile   String?       @map("customer_mobile")
+  customerAddress  String?       @map("customer_address")
+
+  status           InvoiceStatus @default(Draft)
+
+  // Money — Decimal(12,2). taxPercent is Decimal(5,2) (ADR A5).
+  invoiceSubTotal  Decimal       @map("invoice_sub_total") @db.Decimal(12, 2)
+  taxPercent       Decimal       @default(10.00) @map("tax_percent") @db.Decimal(5, 2)
+  totalTax         Decimal       @map("total_tax") @db.Decimal(12, 2)
+  totalDiscount    Decimal       @default(0) @map("total_discount") @db.Decimal(12, 2)
+  totalAmount      Decimal       @map("total_amount") @db.Decimal(12, 2)
+  totalPaid        Decimal       @default(0) @map("total_paid") @db.Decimal(12, 2)
+  balanceAmount    Decimal       @map("balance_amount") @db.Decimal(12, 2)
+
+  createdAt        DateTime      @default(now()) @map("created_at")
+  createdBy        String        @map("created_by") @db.Uuid
+  createdByUser    User          @relation(fields: [createdBy], references: [id])
+
+  items            InvoiceItem[]
+
+  // Sort-key indexes.
+  @@index([invoiceDate])
+  @@index([dueDate])
+  @@index([totalAmount])
+  // Composite index for the Overdue predicate (status != Paid AND dueDate < today).
+  @@index([status, dueDate])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  invoiceId String   @map("invoice_id") @db.Uuid
+  name      String
+  quantity  Int
+  rate      Decimal  @db.Decimal(12, 2)
+
+  invoice   Invoice  @relation(fields: [invoiceId], references: [invoiceId], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
