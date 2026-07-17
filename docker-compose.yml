@@ -1,0 +1,59 @@
+# SimpleInvoice — full stack in one command: `docker compose up` (PKG-01).
+# Brings up Postgres, the NestJS API (migrated + seeded on boot), and the nginx-
+# served React SPA that reverse-proxies /api to the backend.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-simpleinvoice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-simpleinvoice}
+      POSTGRES_DB: ${POSTGRES_DB:-simpleinvoice}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-simpleinvoice} -d ${POSTGRES_DB:-simpleinvoice}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      BACKEND_PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-simpleinvoice}:${POSTGRES_PASSWORD:-simpleinvoice}@db:5432/${POSTGRES_DB:-simpleinvoice}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-please_change_this_dev_secret_value}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      MAX_PAGE_SIZE: ${MAX_PAGE_SIZE:-100}
+      THROTTLE_TTL: ${THROTTLE_TTL:-60}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-100}
+      # Migrate + seed on first boot so a fresh `docker compose up` is fully populated.
+      SEED_ON_BOOT: ${SEED_ON_BOOT:-true}
+      SEED_USER_EMAIL: ${SEED_USER_EMAIL:-reviewer@101digital.io}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-Password123!}
+      SEED_USER_FULLNAME: ${SEED_USER_FULLNAME:-Reviewer}
+    ports:
+      - '${BACKEND_PORT:-3000}:3000'
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '${FRONTEND_PORT:-8080}:80'
+
+volumes:
+  postgres_data:

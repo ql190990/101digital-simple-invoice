@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  # ── Lint + typecheck + unit tests + build across both workspaces ─────────────
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: simpleinvoice
+          POSTGRES_PASSWORD: simpleinvoice
+          POSTGRES_DB: simpleinvoice_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U simpleinvoice"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://simpleinvoice:simpleinvoice@localhost:5432/simpleinvoice_test?schema=public
+      JWT_SECRET: ci_test_secret_value_1234567890
+      JWT_EXPIRES_IN: '3600'
+      APP_TIMEZONE: UTC
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Apply migrations (for e2e)
+        run: npm run prisma:migrate --workspace backend
+
+      - name: Backend unit tests
+        run: npm run test --workspace backend
+
+      - name: Backend e2e tests
+        run: npm run test:e2e --workspace backend
+
+      - name: Frontend tests
+        run: npm run test --workspace frontend
+
+      - name: Build both workspaces
+        run: npm run build
+
+  # ── Verify the Docker images build ──────────────────────────────────────────
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t simpleinvoice-backend ./backend
+      - name: Build frontend image
+        run: docker build -t simpleinvoice-frontend ./frontend
