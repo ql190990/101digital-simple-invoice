@@ -1,0 +1,55 @@
+import type { InvoiceDetail, InvoiceListItem } from '../../features/invoices/types';
+
+export const mockInvoices: InvoiceListItem[] = [
+  {
+    invoiceId: '099ca7da-a290-40fa-93b9-1c43ae7bb887',
+    invoiceNumber: 'IV1780488206995',
+    customerFullname: 'Paul',
+    invoiceDate: '2026-06-03',
+    dueDate: '2026-07-03',
+    totalAmount: 2180,
+    currency: 'AUD',
+    currencySymbol: 'AU$',
+    status: 'Overdue',
+  },
+  {
+    invoiceId: '11111111-1111-1111-1111-111111111111',
+    invoiceNumber: 'INV-0002',
+    customerFullname: 'Emma Watson',
+    invoiceDate: '2026-05-01',
+    dueDate: '2099-01-01',
+    totalAmount: 500,
+    currency: 'USD',
+    currencySymbol: 'US$',
+    status: 'Pending',
+  },
+  {
+    invoiceId: '22222222-2222-2222-2222-222222222222',
+    invoiceNumber: 'INV-0003',
+    customerFullname: 'Liam Nguyen',
+    invoiceDate: '2026-04-01',
+    dueDate: '2026-04-15',
+    totalAmount: 1200,
+    currency: 'GBP',
+    currencySymbol: '£',
+    status: 'Paid',
+  },
+];
+
+export const mockInvoiceDetail: InvoiceDetail = {
+  ...mockInvoices[0],
+  invoiceReference: '#5721662',
+  description: 'Invoice is issued to Kanglee',
+  customerEmail: 'paul@101digital.io',
+  customerMobile: '947717364111',
+  customerAddress: 'Singapore',
+  invoiceSubTotal: 2000,
+  taxPercent: 10,
+  totalTax: 200,
+  totalDiscount: 20,
+  totalPaid: 1451.34,
+  balanceAmount: 728.66,
+  items: [{ id: 'item-1', name: 'Honda RC150', quantity: 2, rate: 1000 }],
+  createdAt: '2026-06-03T12:03:26.995Z',
+  createdBy: 'ad1e0902-1928-4345-b513-60c86c94fc91',
+};
