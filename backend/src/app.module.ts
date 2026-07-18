@@ -1,5 +1,5 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
@@ -18,11 +18,14 @@ import { UsersModule } from './users/users.module';
       isGlobal: true,
       validate: validateEnv,
     }),
+    // Read throttle config through ConfigService (validated env, ADR D4) rather
+    // than raw process.env, so the documented defaults actually apply.
     ThrottlerModule.forRootAsync({
-      useFactory: () => [
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => [
         {
-          ttl: Number(process.env.THROTTLE_TTL ?? 60) * 1000,
-          limit: Number(process.env.THROTTLE_LIMIT ?? 100),
+          ttl: config.get<number>('THROTTLE_TTL', 60) * 1000,
+          limit: config.get<number>('THROTTLE_LIMIT', 100),
         },
       ],
     }),
