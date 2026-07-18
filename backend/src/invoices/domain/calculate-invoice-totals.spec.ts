@@ -50,6 +50,40 @@ describe('calculateInvoiceTotals', () => {
     expect(totals.totalAmount.toFixed(2)).toBe('108.76');
   });
 
+  it('rounds half-up DOWN when the third decimal is < 5 (complements the 8.755 case)', () => {
+    // subtotal 100.00 × 8.754% = 8.754 → rounds DOWN to 8.75.
+    const totals = calculateInvoiceTotals({
+      items: [{ quantity: 1, rate: 100 }],
+      taxPercent: 8.754,
+      discount: 0,
+    });
+    expect(totals.taxAmount.toFixed(2)).toBe('8.75');
+    expect(totals.totalAmount.toFixed(2)).toBe('108.75');
+  });
+
+  it('yields a negative balance when overpaid (totalPaid > totalAmount)', () => {
+    // No tax, no discount: total 100; paying 150 leaves an intended −50 balance.
+    const totals = calculateInvoiceTotals({
+      items: [{ quantity: 1, rate: 100 }],
+      taxPercent: 0,
+      discount: 0,
+      totalPaid: 150,
+    });
+    expect(totals.totalAmount.toFixed(2)).toBe('100.00');
+    expect(totals.balanceAmount.toFixed(2)).toBe('-50.00');
+  });
+
+  it('lets the total go negative when the discount exceeds subtotal + tax', () => {
+    // subtotal 100 + 10 tax − 200 discount = −90 (intended; validation is a DTO concern).
+    const totals = calculateInvoiceTotals({
+      items: [{ quantity: 1, rate: 100 }],
+      taxPercent: 10,
+      discount: 200,
+    });
+    expect(totals.totalAmount.toFixed(2)).toBe('-90.00');
+    expect(totals.balanceAmount.toFixed(2)).toBe('-90.00');
+  });
+
   it('sums multiple line items into the subtotal', () => {
     const totals = calculateInvoiceTotals({
       items: [

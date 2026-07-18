@@ -6,13 +6,15 @@ Prisma, JWT auth — packaged so a reviewer can go from `git clone` to a working
 seeded, logged-in app in one command.
 
 > **TL;DR for reviewers**
+>
 > ```bash
 > docker compose up --build
 > ```
+>
 > Then open **http://localhost:8080** and log in with:
 >
-> | Email | Password |
-> |---|---|
+> | Email                    | Password       |
+> | ------------------------ | -------------- |
 > | `reviewer@101digital.io` | `Password123!` |
 >
 > Swagger API docs: **http://localhost:3000/api/docs**
@@ -58,7 +60,7 @@ single origin (no CORS, no build-time API URL baking).
   imports Prisma.
 - **Service** — orchestration: validates, calls pure domain functions, calls the
   repository, maps DTOs.
-- **Repository** — the *only* layer that imports `PrismaService`. Owns query
+- **Repository** — the _only_ layer that imports `PrismaService`. Owns query
   translation (search / filter / sort / pagination).
 - **Domain** (`backend/src/invoices/domain/`) — pure, dependency-free functions
   `calculateInvoiceTotals()` and `deriveInvoiceStatus()`. These hold the core
@@ -66,14 +68,14 @@ single origin (no CORS, no build-time API URL baking).
 
 ### Tech stack
 
-| Layer | Technology |
-|---|---|
-| Frontend | React 18 + TypeScript, Vite, React Router v6, TanStack Query, React Hook Form + Zod, Tailwind CSS |
-| Backend | NestJS 10 + TypeScript, Prisma 5, `class-validator`/`class-transformer`, `@nestjs/swagger`, `@nestjs/throttler`, Helmet |
-| Database | PostgreSQL 16 (`pg_trgm` extension) |
-| Auth | JWT access token (Passport), bcrypt password hashing |
-| Tests | Backend: Jest + Supertest · Frontend: Vitest + React Testing Library + MSW |
-| Monorepo | npm workspaces |
+| Layer    | Technology                                                                                                              |
+| -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Frontend | React 18 + TypeScript, Vite, React Router v6, TanStack Query, React Hook Form + Zod, Tailwind CSS                       |
+| Backend  | NestJS 10 + TypeScript, Prisma 5, `class-validator`/`class-transformer`, `@nestjs/swagger`, `@nestjs/throttler`, Helmet |
+| Database | PostgreSQL 16 (`pg_trgm` extension)                                                                                     |
+| Auth     | JWT access token (Passport), bcrypt password hashing                                                                    |
+| Tests    | Backend: Jest + Supertest · Frontend: Vitest + React Testing Library + MSW                                              |
+| Monorepo | npm workspaces                                                                                                          |
 
 ---
 
@@ -90,6 +92,7 @@ docker compose up --build
 ```
 
 This will:
+
 1. Start PostgreSQL and wait until it is **healthy** (`pg_isready`).
 2. Start the backend, which on boot runs `prisma migrate deploy` and then **seeds**
    the database (because `SEED_ON_BOOT=true` is the compose default).
@@ -100,6 +103,14 @@ Open **http://localhost:8080** and log in.
 > No `.env` file is required for Docker — `docker-compose.yml` ships sensible
 > defaults for every value. To override anything (ports, JWT secret, timezone),
 > copy `.env.example` to `.env` and Compose will pick it up.
+
+> ⚠️ **Security note — the compose `JWT_SECRET` is a non-secret DEMO placeholder.**
+> `docker-compose.yml` defaults `JWT_SECRET` to a value committed in this repo, so a
+> zero-config `docker compose up` works for local review. Because it is public, anyone
+> could forge valid tokens with it — it is safe **only** for a throwaway local demo. For
+> any shared, hosted, or real deployment you **must** set a real random secret, e.g.
+> `JWT_SECRET=$(openssl rand -hex 32)` in your `.env` (the same applies to
+> `POSTGRES_PASSWORD` and `SEED_USER_PASSWORD`).
 
 To stop: `docker compose down` (add `-v` to also drop the database volume).
 
@@ -133,8 +144,8 @@ npm run dev
 
 ## 3. Default login credentials
 
-| Email | Password |
-|---|---|
+| Email                    | Password       |
+| ------------------------ | -------------- |
 | `reviewer@101digital.io` | `Password123!` |
 
 Seeded by `backend/prisma/seed.ts`. Configurable via `SEED_USER_EMAIL` /
@@ -173,14 +184,14 @@ Full rationale in [`docs/DECISIONS.md`](docs/DECISIONS.md). The most important o
   `?status=` filter uses a matching SQL predicate on the **effective** status, so what
   you filter always equals what you see:
   - `Overdue` → `status != 'Paid' AND dueDate < today`
-  - `Draft`   → `status = 'Draft'  AND dueDate >= today`
+  - `Draft` → `status = 'Draft'  AND dueDate >= today`
   - `Pending` → `status = 'Pending' AND dueDate >= today`
-  - `Paid`    → `status = 'Paid'`
+  - `Paid` → `status = 'Paid'`
 - **A2 — No global `/api` prefix.** Routes are `/auth/login`, `/invoices`, … ; Swagger
   is mounted separately at `/api/docs`.
 - **A4 — "today" is a date in one timezone.** `dueDate` is a `DATE`; comparisons are
   date-only, using a configurable `APP_TIMEZONE` (default `UTC`) shared by the domain
-  function and the SQL predicate. Boundary tested: due **today** is *not* overdue.
+  function and the SQL predicate. Boundary tested: due **today** is _not_ overdue.
 - **A5 — `taxPercent` persisted; discount is absolute.** Added a `taxPercent`
   column so the input isn't lost. `discount`/`totalDiscount` is an absolute amount
   (Appendix A: subtotal 2000, tax 200 = 10%, discount 20 = absolute).
@@ -188,7 +199,7 @@ Full rationale in [`docs/DECISIONS.md`](docs/DECISIONS.md). The most important o
   legal/accounting record; it must capture customer details as they were at issue
   time. A normalised FK would let a later customer edit mutate historical invoices.
 - **A7 — Appendix A anchor** seeded as persisted `Pending` with its original past due
-  date (2026-07-03) so `Overdue` is *derived* (proving derivation works). Its
+  date (2026-07-03) so `Overdue` is _derived_ (proving derivation works). Its
   `createdBy` UUID is reused as the default user's id.
 - **A8 — Omitted fields.** `type: "INVOICE"` and `invoiceGrossTotal` (duplicates the
   subtotal) are not modelled.
@@ -196,7 +207,7 @@ Full rationale in [`docs/DECISIONS.md`](docs/DECISIONS.md). The most important o
   reviewer runs it.
 - **A10 — Duplicate invoice number → `409 Conflict`** via a DB unique constraint
   (race-free), mapping Prisma `P2002` to 409 (not 400 — it's a state conflict).
-- **A11 — JWT in `localStorage`.** *Tradeoff:* `localStorage` is XSS-readable; an
+- **A11 — JWT in `localStorage`.** _Tradeoff:_ `localStorage` is XSS-readable; an
   `httpOnly` cookie would be more secure but requires same-site/CSRF handling that is
   disproportionate for this scope. Chosen consciously and documented.
 - **A12 — Money never touches JS floats.** All money is `numeric(12,2)` and computed
@@ -217,8 +228,12 @@ in the spec), and were excluded to keep the solution focused:
 - **Create form supports exactly one line item** (per spec), though the schema and API
   model a real one-to-many so multiple items are trivial to add later.
 - **JWT in `localStorage`** — see A11 tradeoff above.
+- **Password hashing uses `bcryptjs` (pure JS)** — a deliberate choice for portability (no
+  native addon / build toolchain needed); it is ~3× slower than the native `bcrypt` binding,
+  which is immaterial at this login volume.
 - **Seed uses truncate-then-insert**, so running it drops existing invoice/user data by
-  design (fine for a demo dataset; not a production migration strategy).
+  design (fine for a demo dataset; not a production migration strategy). On container boot the
+  seed runs in seed-if-empty mode and skips a populated DB (see §9 `SEED_ON_BOOT`).
 - **No production TLS / secrets manager** — secrets come from env; in a real deployment
   these would come from a managed secret store.
 
@@ -229,14 +244,14 @@ in the spec), and were excluded to keep the solution focused:
 Base URL: backend root (no `/api` prefix on routes). Full interactive docs at
 **`/api/docs`**.
 
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| POST | `/auth/login` | ✗ | Authenticate, return JWT |
-| GET | `/auth/me` | ✓ | Current authenticated user |
-| GET | `/invoices` | ✓ | List (search, filter, sort, pagination) |
-| GET | `/invoices/:id` | ✓ | Invoice detail |
-| POST | `/invoices` | ✓ | Create invoice (Draft, totals computed server-side) |
-| GET | `/health` | ✗ | Health check with DB connectivity |
+| Method | Endpoint        | Auth | Description                                         |
+| ------ | --------------- | ---- | --------------------------------------------------- |
+| POST   | `/auth/login`   | ✗    | Authenticate, return JWT                            |
+| GET    | `/auth/me`      | ✓    | Current authenticated user                          |
+| GET    | `/invoices`     | ✓    | List (search, filter, sort, pagination)             |
+| GET    | `/invoices/:id` | ✓    | Invoice detail                                      |
+| POST   | `/invoices`     | ✓    | Create invoice (Draft, totals computed server-side) |
+| GET    | `/health`       | ✗    | Health check with DB connectivity                   |
 
 **`GET /invoices` query params:** `page` (default 1), `pageSize` (default 10, max 100),
 `sortBy` (`invoiceDate`|`dueDate`|`totalAmount`, default `invoiceDate`), `ordering`
@@ -245,11 +260,13 @@ Base URL: backend root (no `/api` prefix on routes). Full interactive docs at
 `toDate` (`YYYY-MM-DD`).
 
 **Response shape:**
+
 ```json
 { "data": [ ... ], "paging": { "page": 1, "pageSize": 10, "total": 41 } }
 ```
 
 **Business logic (server-side only):**
+
 ```
 subTotal      = Σ(quantity × rate)
 taxAmount     = round2(subTotal × taxPercent / 100)
@@ -258,6 +275,7 @@ balanceAmount = totalAmount − totalPaid
 ```
 
 **Error envelopes:**
+
 ```json
 // Validation (400)
 { "statusCode": 400, "message": ["dueDate must be on or after invoiceDate"], "error": "Bad Request" }
@@ -265,15 +283,28 @@ balanceAmount = totalAmount − totalPaid
 { "statusCode": 404, "message": "Invoice not found", "error": "Not Found" }
 ```
 
+**`GET /health` response** (public; runs a real `SELECT 1` DB connectivity check):
+
+| Field       | Type                   | Description                                    |
+| ----------- | ---------------------- | ---------------------------------------------- |
+| `status`    | `"ok"` \| `"degraded"` | `ok` when the DB check passed, else `degraded` |
+| `db`        | `"up"` \| `"down"`     | Database reachability                          |
+| `uptime`    | number                 | Process uptime in whole seconds                |
+| `timestamp` | string                 | ISO-8601 timestamp of the check                |
+
+```json
+{ "status": "ok", "db": "up", "uptime": 123, "timestamp": "2026-07-18T00:00:00.000Z" }
+```
+
 ---
 
 ## 8. Exposed ports
 
-| Service | Container port | Host port (default) | Env override |
-|---|---|---|---|
-| Frontend (nginx) | 80 | **8080** | `FRONTEND_PORT` |
-| Backend (NestJS) | 3000 | **3000** | `BACKEND_PORT` |
-| PostgreSQL | 5432 | **5432** | `POSTGRES_PORT` |
+| Service          | Container port | Host port (default) | Env override    |
+| ---------------- | -------------- | ------------------- | --------------- |
+| Frontend (nginx) | 80             | **8080**            | `FRONTEND_PORT` |
+| Backend (NestJS) | 3000           | **3000**            | `BACKEND_PORT`  |
+| PostgreSQL       | 5432           | **5432**            | `POSTGRES_PORT` |
 
 ---
 
@@ -281,21 +312,23 @@ balanceAmount = totalAmount − totalPaid
 
 Copy `.env.example` → `.env`. All keys are documented there; summary:
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `DATABASE_URL` | — | Prisma Postgres connection string |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `simpleinvoice` | DB credentials (compose) |
-| `BACKEND_PORT` | `3000` | API port |
-| `JWT_SECRET` | — | JWT signing secret (**required**, ≥16 chars) |
-| `JWT_EXPIRES_IN` | `3600` | Access-token TTL (seconds) |
-| `APP_TIMEZONE` | `UTC` | Timezone for date-only "today" comparisons |
-| `CORS_ORIGINS` | localhost list | CORS allow-list (unused behind nginx proxy) |
-| `MAX_PAGE_SIZE` | `100` | Pagination clamp |
-| `THROTTLE_TTL` / `THROTTLE_LIMIT` | `60` / `100` | Global rate limiting window/limit (login is stricter: 5/60s) |
-| `SEED_ON_BOOT` | `false` (`true` in compose) | Migrate + seed on backend startup |
-| `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` / `SEED_USER_FULLNAME` | reviewer account | Default seeded user |
-| `FRONTEND_PORT` | `8080` | SPA port |
-| `VITE_API_BASE_URL` | `/api` | SPA API base (relative; proxied) |
+| Variable                                                        | Default                     | Purpose                                                                                                                                                                                                                              |
+| --------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NODE_ENV`                                                      | `development`               | Runtime mode (`development` \| `production` \| `test`); compose sets `production`                                                                                                                                                    |
+| `DATABASE_URL`                                                  | —                           | Prisma Postgres connection string                                                                                                                                                                                                    |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`           | `simpleinvoice`             | DB credentials (compose)                                                                                                                                                                                                             |
+| `BACKEND_PORT`                                                  | `3000`                      | API port                                                                                                                                                                                                                             |
+| `JWT_SECRET`                                                    | —                           | JWT signing secret (**required**, ≥16 chars)                                                                                                                                                                                         |
+| `JWT_EXPIRES_IN`                                                | `3600`                      | Access-token TTL (seconds)                                                                                                                                                                                                           |
+| `APP_TIMEZONE`                                                  | `UTC`                       | Timezone for date-only "today" comparisons                                                                                                                                                                                           |
+| `ENABLE_SWAGGER`                                                | `true`                      | Gates the interactive API docs at `/api/docs`; set `false` to disable                                                                                                                                                                |
+| `CORS_ORIGINS`                                                  | localhost list              | CORS allow-list (unused behind nginx proxy)                                                                                                                                                                                          |
+| `MAX_PAGE_SIZE`                                                 | `100`                       | Pagination clamp                                                                                                                                                                                                                     |
+| `THROTTLE_TTL` / `THROTTLE_LIMIT`                               | `60` / `100`                | Global rate limiting window/limit (login is stricter: 5/60s)                                                                                                                                                                         |
+| `SEED_ON_BOOT`                                                  | `false` (`true` in compose) | Migrate + seed on backend startup. On boot the seed runs in **seed-if-empty** mode — it skips (no truncate) when the DB already holds data, so container restarts don't wipe it. A manual `npm run seed` still truncates and reseeds |
+| `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` / `SEED_USER_FULLNAME` | reviewer account            | Default seeded user                                                                                                                                                                                                                  |
+| `FRONTEND_PORT`                                                 | `8080`                      | SPA port                                                                                                                                                                                                                             |
+| `VITE_API_BASE_URL`                                             | `/api`                      | SPA API base (relative; proxied)                                                                                                                                                                                                     |
 
 The backend **validates env at startup** (`backend/src/config/env.validation.ts`) and
 fails loudly with a clear message if anything required is missing or malformed.
@@ -327,6 +360,7 @@ npm run typecheck
 ```
 
 **What's covered**
+
 - **Domain**: invoice total calculations (rounding, zero discount, default tax, multi-item,
   float-safety), overdue derivation incl. the today/yesterday boundary and "Paid is never
   Overdue", due-date validation.

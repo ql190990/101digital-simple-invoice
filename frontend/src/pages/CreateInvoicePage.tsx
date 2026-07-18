@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import axios from 'axios';
 import { useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
@@ -70,8 +71,9 @@ export function CreateInvoicePage() {
       navigate('/', { replace: true });
     } catch (error) {
       const message = getApiErrorMessage(error, 'Failed to create invoice');
-      // Surface duplicate invoice number (409) on the field.
-      if (message.toLowerCase().includes('already exists')) {
+      // Surface a duplicate invoice number on the field itself. Branch on the HTTP
+      // status (409 Conflict, CQ M2) rather than substring-matching server prose.
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
         setError('invoiceNumber', { message });
       }
       notify(message, 'error');

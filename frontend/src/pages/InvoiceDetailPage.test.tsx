@@ -1,7 +1,9 @@
 import { screen } from '@testing-library/react';
+import { HttpResponse, http } from 'msw';
 import { Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { InvoiceDetailPage } from './InvoiceDetailPage';
+import { server } from '../test/mocks/server';
 import { renderWithProviders } from '../test/utils';
 import { mockInvoiceDetail } from '../test/mocks/data';
 
@@ -38,5 +40,15 @@ describe('InvoiceDetailPage', () => {
     setup('00000000-0000-0000-0000-000000000000');
 
     expect(await screen.findByText(/invoice not found/i)).toBeInTheDocument();
+  });
+
+  it('shows a neutral error (not "not found") when the request fails with 500', async () => {
+    server.use(http.get('/api/invoices/:id', () => HttpResponse.json({}, { status: 500 })));
+    setup(mockInvoiceDetail.invoiceId);
+
+    expect(
+      await screen.findByText(/something went wrong loading this invoice/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/invoice not found/i)).not.toBeInTheDocument();
   });
 });

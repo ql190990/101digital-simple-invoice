@@ -21,6 +21,19 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split vendor code into cacheable chunks (Perf M-2). `forms` is only
+        // needed on the Create page, so it stays off the initial path.
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          query: ['@tanstack/react-query', 'axios'],
+          forms: ['react-hook-form', 'zod', '@hookform/resolvers'],
+        },
+      },
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

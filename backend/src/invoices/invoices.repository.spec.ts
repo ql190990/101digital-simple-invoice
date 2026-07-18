@@ -1,5 +1,8 @@
 import { Prisma } from '@prisma/client';
+import { Decimal } from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
+import { deriveInvoiceStatus } from './domain/derive-invoice-status';
+import { PersistedStatus } from './domain/invoice-status';
 import {
   EffectiveStatusFilter,
   InvoiceSortBy,
@@ -25,7 +28,6 @@ describe('InvoicesRepository', () => {
       findMany: jest.Mock;
       count: jest.Mock;
     };
-    $transaction: jest.Mock;
   };
   let repository: InvoicesRepository;
 
@@ -34,11 +36,10 @@ describe('InvoicesRepository', () => {
       invoice: {
         create: jest.fn(),
         findUnique: jest.fn(),
-        // findMany/count return sentinels; $transaction resolves the real tuple.
-        findMany: jest.fn().mockReturnValue('findMany-promise'),
-        count: jest.fn().mockReturnValue('count-promise'),
+        // findMany/count are awaited concurrently via Promise.all (no $transaction).
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
       },
-      $transaction: jest.fn().mockResolvedValue([[], 0]),
     };
     repository = new InvoicesRepository(prisma as unknown as PrismaService);
   });
@@ -54,15 +55,19 @@ describe('InvoicesRepository', () => {
   }
 
   /** Run findMany and return the `where` clause passed to prisma.invoice.findMany. */
-  async function whereFor(overrides: Partial<ListInvoicesDto> = {}): Promise<Prisma.InvoiceWhereInput> {
+  async function whereFor(
+    overrides: Partial<ListInvoicesDto> = {},
+  ): Promise<Prisma.InvoiceWhereInput> {
     await repository.findMany(makeQuery(overrides), TODAY);
     return prisma.invoice.findMany.mock.calls[0][0].where as Prisma.InvoiceWhereInput;
   }
 
   describe('statusPredicate (mirrors deriveInvoiceStatus, ADR A3)', () => {
-    it('Overdue → status != Paid AND dueDate < today', async () => {
+    it('Overdue → status IN [Draft, Pending] AND dueDate < today', async () => {
       const where = await whereFor({ status: EffectiveStatusFilter.Overdue });
-      expect(where).toEqual({ AND: [{ status: { not: 'Paid' }, dueDate: { lt: TODAY } }] });
+      expect(where).toEqual({
+        AND: [{ status: { in: ['Draft', 'Pending'] }, dueDate: { lt: TODAY } }],
+      });
     });
 
     it('Draft → status = Draft AND dueDate >= today', async () => {
@@ -79,6 +84,60 @@ describe('InvoicesRepository', () => {
       const where = await whereFor({ status: EffectiveStatusFilter.Paid });
       expect(where).toEqual({ AND: [{ status: 'Paid' }] });
     });
+  });
+
+  describe('A3 lockstep: statusPredicate agrees with deriveInvoiceStatus (Test M1)', () => {
+    // Apply the (deliberately simple) predicate shapes statusPredicate emits to an
+    // in-memory row. Understands exactly the comparators the predicate uses: a
+    // status equality or `{ in: [...] }`, and dueDate `{ lt }` / `{ gte }`.
+    function predicateSelects(
+      predicate: Prisma.InvoiceWhereInput,
+      row: { status: PersistedStatus; dueDate: Date },
+    ): boolean {
+      const statusCond = predicate.status;
+      if (typeof statusCond === 'string') {
+        if (row.status !== statusCond) return false;
+      } else if (statusCond && typeof statusCond === 'object' && 'in' in statusCond) {
+        const inList = (statusCond as { in?: readonly string[] }).in ?? [];
+        if (!inList.includes(row.status)) return false;
+      }
+      const dueCond = predicate.dueDate as unknown as { lt?: Date; gte?: Date } | undefined;
+      if (dueCond?.lt !== undefined && !(row.dueDate.getTime() < dueCond.lt.getTime())) {
+        return false;
+      }
+      if (dueCond?.gte !== undefined && !(row.dueDate.getTime() >= dueCond.gte.getTime())) {
+        return false;
+      }
+      return true;
+    }
+
+    // Matrix: every persisted status × a relative due date around TODAY. The
+    // yesterday/today/tomorrow triple pins the "due today is NOT overdue" boundary.
+    const statuses: PersistedStatus[] = ['Draft', 'Pending', 'Paid'];
+    const dueDates = [
+      new Date(Date.UTC(2026, 6, 17)), // yesterday
+      new Date(Date.UTC(2026, 6, 18)), // today (=== TODAY)
+      new Date(Date.UTC(2026, 6, 19)), // tomorrow
+    ];
+    const rows = statuses.flatMap((status) => dueDates.map((dueDate) => ({ status, dueDate })));
+
+    it.each(Object.values(EffectiveStatusFilter))(
+      'predicate for %s selects exactly the rows deriveInvoiceStatus marks as that status',
+      async (filter) => {
+        const where = await whereFor({ status: filter });
+        const predicate = (where.AND as Prisma.InvoiceWhereInput[])[0];
+
+        const selectedBySql = rows.filter((row) => predicateSelects(predicate, row));
+        const selectedByDomain = rows.filter(
+          // EffectiveStatusFilter is a nominal enum; compare on the string value.
+          (row) => deriveInvoiceStatus(row.status, row.dueDate, TODAY) === (filter as string),
+        );
+
+        expect(selectedBySql).toEqual(selectedByDomain);
+        // Sanity: the matrix genuinely exercises this filter.
+        expect(selectedByDomain.length).toBeGreaterThan(0);
+      },
+    );
   });
 
   describe('keyword search (ILIKE on number OR customer name, ADR A8)', () => {
@@ -141,12 +200,27 @@ describe('InvoicesRepository', () => {
   });
 
   describe('sorting & pagination', () => {
-    it('maps sortBy/ordering to Prisma orderBy', async () => {
+    it('maps sortBy/ordering to a Prisma orderBy array', async () => {
       await repository.findMany(
         makeQuery({ sortBy: InvoiceSortBy.totalAmount, ordering: SortOrdering.ASC }),
         TODAY,
       );
-      expect(prisma.invoice.findMany.mock.calls[0][0].orderBy).toEqual({ totalAmount: 'asc' });
+      expect(prisma.invoice.findMany.mock.calls[0][0].orderBy).toEqual([
+        { totalAmount: 'asc' },
+        { invoiceId: 'asc' },
+      ]);
+    });
+
+    it('appends invoiceId as a deterministic pagination tiebreaker (Arch H1)', async () => {
+      await repository.findMany(
+        makeQuery({ sortBy: InvoiceSortBy.invoiceDate, ordering: SortOrdering.DESC }),
+        TODAY,
+      );
+      const orderBy = prisma.invoice.findMany.mock.calls[0][0].orderBy;
+      expect(Array.isArray(orderBy)).toBe(true);
+      // The unique key comes last and shares the primary sort's direction.
+      expect(orderBy).toEqual([{ invoiceDate: 'desc' }, { invoiceId: 'desc' }]);
+      expect(orderBy[orderBy.length - 1]).toEqual({ invoiceId: 'desc' });
     });
 
     it('translates page/pageSize into skip/take', async () => {
@@ -156,15 +230,16 @@ describe('InvoicesRepository', () => {
       expect(args.take).toBe(20);
     });
 
-    it('returns rows and total from the $transaction tuple', async () => {
-      prisma.$transaction.mockResolvedValueOnce([[{ invoiceId: 'x' }], 7]);
+    it('returns rows and total from concurrent findMany + count', async () => {
+      prisma.invoice.findMany.mockResolvedValueOnce([{ invoiceId: 'x' }]);
+      prisma.invoice.count.mockResolvedValueOnce(7);
       const result = await repository.findMany(makeQuery(), TODAY);
       expect(result).toEqual({ rows: [{ invoiceId: 'x' }], total: 7 });
     });
   });
 
   describe('create & findById', () => {
-    it('create() inserts nested items and includes them in the result', async () => {
+    it('create() converts domain money values to Prisma.Decimal and nests items', async () => {
       prisma.invoice.create.mockResolvedValue({ invoiceId: 'new', items: [] });
       const data = {
         invoiceNumber: 'INV-1',
@@ -178,23 +253,36 @@ describe('InvoicesRepository', () => {
         customerEmail: 'paul@example.com',
         customerMobile: null,
         customerAddress: null,
-        taxPercent: new Prisma.Decimal(10),
-        invoiceSubTotal: new Prisma.Decimal(2000),
-        totalTax: new Prisma.Decimal(200),
-        totalDiscount: new Prisma.Decimal(20),
-        totalAmount: new Prisma.Decimal(2180),
-        totalPaid: new Prisma.Decimal(0),
-        balanceAmount: new Prisma.Decimal(2180),
+        // Mixed domain inputs: decimal.js Decimal, number, and string.
+        taxPercent: 10,
+        invoiceSubTotal: new Decimal('2000'),
+        totalTax: '200',
+        totalDiscount: 20,
+        totalAmount: new Decimal('2180'),
+        totalPaid: 0,
+        balanceAmount: '2180',
         createdBy: 'user-1',
-        items: [{ name: 'Honda RC150', quantity: 2, rate: new Prisma.Decimal(1000) }],
+        items: [{ name: 'Honda RC150', quantity: 2, rate: 1000 }],
       } satisfies CreateInvoiceData;
 
       await repository.create(data);
 
       const arg = prisma.invoice.create.mock.calls[0][0];
       expect(arg.include).toEqual({ items: true });
-      expect(arg.data.items).toEqual({ create: data.items });
       expect(arg.data.invoiceNumber).toBe('INV-1');
+      // Every money field is converted to a Prisma.Decimal regardless of input type.
+      expect(arg.data.totalAmount).toBeInstanceOf(Prisma.Decimal);
+      expect(arg.data.totalAmount.toString()).toBe('2180');
+      expect(arg.data.invoiceSubTotal.toString()).toBe('2000');
+      expect(arg.data.taxPercent.toString()).toBe('10');
+      expect(arg.data.totalPaid.toString()).toBe('0');
+      // Items are re-created with a Prisma.Decimal rate.
+      expect(arg.data.items.create[0].rate).toBeInstanceOf(Prisma.Decimal);
+      expect(arg.data.items.create[0]).toEqual({
+        name: 'Honda RC150',
+        quantity: 2,
+        rate: new Prisma.Decimal('1000'),
+      });
     });
 
     it('findById() queries by invoiceId and includes items', () => {

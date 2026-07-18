@@ -19,9 +19,17 @@ export class LoggingInterceptor implements NestInterceptor {
     const cid = req.correlationId ?? '-';
 
     return next.handle().pipe(
-      tap(() => {
-        const duration = Date.now() - start;
-        this.logger.log(`[${cid}] ${method} ${originalUrl} ${res.statusCode} ${duration}ms`);
+      tap({
+        next: () => {
+          const duration = Date.now() - start;
+          this.logger.log(`[${cid}] ${method} ${originalUrl} ${res.statusCode} ${duration}ms`);
+        },
+        // Requests that throw must still produce a timing line (CICD M-5); the
+        // AllExceptionsFilter logs the mapped status + detail separately.
+        error: () => {
+          const duration = Date.now() - start;
+          this.logger.warn(`[${cid}] ${method} ${originalUrl} errored ${duration}ms`);
+        },
       }),
     );
   }
