@@ -47,3 +47,6 @@ npm-debug.log*
 *.pid
 
 # Keep the assessment PDF out of the deliverable if desired (kept for reference)
+
+# Multi-agent review workspace (not part of deliverable)
+.full-review/

@@ -1,6 +1,12 @@
 # SimpleInvoice — full stack in one command: `docker compose up` (PKG-01).
 # Brings up Postgres, the NestJS API (migrated + seeded on boot), and the nginx-
 # served React SPA that reverse-proxies /api to the backend.
+#
+# This file is a WORKING LOCAL DEMO, not a deployment template. It ships with
+# non-secret placeholder credentials so `docker compose up` boots with zero setup.
+# For any shared/hosted/real deployment, override JWT_SECRET, POSTGRES_PASSWORD and
+# SEED_USER_PASSWORD with real random values (e.g. via a `.env` file or a secrets
+# manager) — see README §2.
 
 services:
   db:
@@ -11,7 +17,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-simpleinvoice}
       POSTGRES_DB: ${POSTGRES_DB:-simpleinvoice}
     ports:
-      - '${POSTGRES_PORT:-5432}:5432'
+      # Bound to loopback so the DB (with demo default creds) is not exposed on the
+      # host's external interfaces — reach it via the compose network (Sec M4 / CICD M-2).
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,6 +27,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   backend:
     build:
@@ -31,6 +44,9 @@ services:
       NODE_ENV: production
       BACKEND_PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-simpleinvoice}:${POSTGRES_PASSWORD:-simpleinvoice}@db:5432/${POSTGRES_DB:-simpleinvoice}?schema=public
+      # DEMO PLACEHOLDER ONLY — this default is committed to the repo and therefore
+      # public. Anyone can forge valid JWTs with it. MUST be overridden with a long
+      # random secret (e.g. `openssl rand -hex 32`) for any real/shared deployment.
       JWT_SECRET: ${JWT_SECRET:-please_change_this_dev_secret_value}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
       APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
@@ -39,21 +55,50 @@ services:
       THROTTLE_TTL: ${THROTTLE_TTL:-60}
       THROTTLE_LIMIT: ${THROTTLE_LIMIT:-100}
       # Migrate + seed on first boot so a fresh `docker compose up` is fully populated.
+      # The entrypoint seeds with SEED_IF_EMPTY so a container restart skips seeding
+      # when data already exists (non-destructive) — see backend/prisma/seed.ts (CICD H-2).
       SEED_ON_BOOT: ${SEED_ON_BOOT:-true}
       SEED_USER_EMAIL: ${SEED_USER_EMAIL:-reviewer@101digital.io}
       SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-Password123!}
       SEED_USER_FULLNAME: ${SEED_USER_FULLNAME:-Reviewer}
     ports:
-      - '${BACKEND_PORT:-3000}:3000'
+      # Bound to loopback: nginx (frontend) proxies /api on the compose network, so the
+      # API need not be published on external interfaces. Kept on localhost for Swagger
+      # / direct debugging (Sec M4 / CICD M-2).
+      - '127.0.0.1:${BACKEND_PORT:-3000}:3000'
+    healthcheck:
+      # Gate readiness on the real /health endpoint (DB-connected) so nginx does not
+      # start proxying to a backend still running migrations (CICD M-7).
+      # Use 127.0.0.1 (not localhost): the app listens on 0.0.0.0 (IPv4) but busybox
+      # wget resolves "localhost" to IPv6 ::1 first inside Alpine → connection refused.
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/health']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   frontend:
     build:
       context: ./frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      # Wait until the backend is actually healthy (migrated + DB-connected),
+      # not merely started (CICD M-7).
+      backend:
+        condition: service_healthy
     ports:
+      # Public demo entrypoint — the only port intended to be reachable.
       - '${FRONTEND_PORT:-8080}:80'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data:

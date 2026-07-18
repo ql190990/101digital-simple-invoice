@@ -76,7 +76,9 @@ test.describe('Invoice list', () => {
     await toggle.click(); // flip DESC → ASC
     await expect(toggle).toContainText('ASC');
     // Wait until the re-sorted list actually changes its top row.
-    await expect.poll(async () => (await firstNumber()).trim(), { timeout: 15_000 }).not.toBe(descTop);
+    await expect
+      .poll(async () => (await firstNumber()).trim(), { timeout: 15_000 })
+      .not.toBe(descTop);
   });
 
   test('paginates through results (server-side)', async ({ page }) => {
@@ -89,12 +91,16 @@ test.describe('Invoice list', () => {
     // so poll until the top row actually changes rather than reading it immediately.
     await page.getByRole('button', { name: 'Next' }).click();
     await expect(page.getByText(/Page 2 of/)).toBeVisible();
-    await expect.poll(async () => (await firstNumber()).trim(), { timeout: 15_000 }).not.toBe(page1First);
+    await expect
+      .poll(async () => (await firstNumber()).trim(), { timeout: 15_000 })
+      .not.toBe(page1First);
 
     // Previous: back to page 1, top row returns to the original.
     await page.getByRole('button', { name: 'Previous' }).click();
     await expect(page.getByText(/Page 1 of/)).toBeVisible();
-    await expect.poll(async () => (await firstNumber()).trim(), { timeout: 15_000 }).toBe(page1First);
+    await expect
+      .poll(async () => (await firstNumber()).trim(), { timeout: 15_000 })
+      .toBe(page1First);
   });
 
   test('clicking a row navigates to its detail page', async ({ page }) => {

@@ -21,7 +21,9 @@ test.describe('Authentication', () => {
 
   test('rejects invalid credentials with a generic error and stays on /login', async ({ page }) => {
     await login(page, CREDENTIALS.email, 'wrong-password');
-    await expect(page.getByRole('alert').filter({ hasText: /invalid email or password/i })).toBeVisible();
+    await expect(
+      page.getByRole('alert').filter({ hasText: /invalid email or password/i }),
+    ).toBeVisible();
     await expect(page).toHaveURL(/\/login$/);
   });
 

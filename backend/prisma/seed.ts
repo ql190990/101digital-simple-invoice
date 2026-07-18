@@ -64,15 +64,60 @@ const CURRENCIES: { code: string; symbol: string }[] = [
 ];
 
 const CUSTOMERS: { fullname: string; email: string; mobile: string; address: string }[] = [
-  { fullname: 'Paul Anderson', email: 'paul@example.com', mobile: '947717364111', address: 'Singapore' },
-  { fullname: 'Aisha Rahman', email: 'aisha@example.com', mobile: '60123456789', address: 'Kuala Lumpur, Malaysia' },
-  { fullname: 'Liam Nguyen', email: 'liam@example.com', mobile: '84987654321', address: 'Ho Chi Minh City, Vietnam' },
-  { fullname: 'Emma Watson', email: 'emma@example.com', mobile: '447700900123', address: 'London, UK' },
-  { fullname: 'Noah Smith', email: 'noah@example.com', mobile: '14155550100', address: 'San Francisco, USA' },
-  { fullname: 'Olivia Brown', email: 'olivia@example.com', mobile: '61412345678', address: 'Sydney, Australia' },
-  { fullname: 'Kanglee Tan', email: 'kanglee@example.com', mobile: '6591234567', address: 'Singapore' },
-  { fullname: 'Sofia Garcia', email: 'sofia@example.com', mobile: '34600123456', address: 'Madrid, Spain' },
-  { fullname: 'Arjun Patel', email: 'arjun@example.com', mobile: '919812345678', address: 'Mumbai, India' },
+  {
+    fullname: 'Paul Anderson',
+    email: 'paul@example.com',
+    mobile: '947717364111',
+    address: 'Singapore',
+  },
+  {
+    fullname: 'Aisha Rahman',
+    email: 'aisha@example.com',
+    mobile: '60123456789',
+    address: 'Kuala Lumpur, Malaysia',
+  },
+  {
+    fullname: 'Liam Nguyen',
+    email: 'liam@example.com',
+    mobile: '84987654321',
+    address: 'Ho Chi Minh City, Vietnam',
+  },
+  {
+    fullname: 'Emma Watson',
+    email: 'emma@example.com',
+    mobile: '447700900123',
+    address: 'London, UK',
+  },
+  {
+    fullname: 'Noah Smith',
+    email: 'noah@example.com',
+    mobile: '14155550100',
+    address: 'San Francisco, USA',
+  },
+  {
+    fullname: 'Olivia Brown',
+    email: 'olivia@example.com',
+    mobile: '61412345678',
+    address: 'Sydney, Australia',
+  },
+  {
+    fullname: 'Kanglee Tan',
+    email: 'kanglee@example.com',
+    mobile: '6591234567',
+    address: 'Singapore',
+  },
+  {
+    fullname: 'Sofia Garcia',
+    email: 'sofia@example.com',
+    mobile: '34600123456',
+    address: 'Madrid, Spain',
+  },
+  {
+    fullname: 'Arjun Patel',
+    email: 'arjun@example.com',
+    mobile: '919812345678',
+    address: 'Mumbai, India',
+  },
   { fullname: 'Mia Chen', email: 'mia@example.com', mobile: '85291234567', address: 'Hong Kong' },
 ];
 
@@ -227,6 +272,19 @@ async function seedGeneratedInvoices(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // Seed-if-empty guard (CICD H-2): when SEED_IF_EMPTY=true (used by the container
+  // entrypoint on boot) and the database already holds data, skip entirely so a
+  // restart never truncates a populated database. A manual `npm run seed` leaves
+  // SEED_IF_EMPTY unset and keeps the truncate-and-reseed reset behaviour (ADR D6).
+  if (process.env.SEED_IF_EMPTY === 'true') {
+    const existingUsers = await prisma.user.count();
+    if (existingUsers > 0) {
+      // eslint-disable-next-line no-console
+      console.log('Database already seeded — skipping (SEED_IF_EMPTY)');
+      return;
+    }
+  }
+
   // eslint-disable-next-line no-console
   console.log('Seeding database...');
   await truncate();

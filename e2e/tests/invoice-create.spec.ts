@@ -26,7 +26,9 @@ test.describe('Create invoice', () => {
     await expect(page.getByText('Due date must be on or after invoice date')).toBeVisible();
   });
 
-  test('creates an invoice, shows a toast, redirects, and it appears in the list', async ({ page }) => {
+  test('creates an invoice, shows a toast, redirects, and it appears in the list', async ({
+    page,
+  }) => {
     const number = uniqueInvoiceNumber('OK');
     await fillInvoiceForm(page, { number, qty: 2, rate: 1000 });
     await page.getByRole('button', { name: /create invoice/i }).click();
