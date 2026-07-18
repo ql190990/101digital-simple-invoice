@@ -27,14 +27,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request & { correlationId?: string }>();
 
     const { statusCode, message, error } = this.resolve(exception);
+    const cid = request.correlationId ?? '-';
+    const flatMessage = Array.isArray(message) ? message.join('; ') : message;
+    const line = `[${cid}] ${request.method} ${request.url} → ${statusCode}: ${flatMessage}`;
 
     if (statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
-      this.logger.error(
-        `[${request.correlationId ?? '-'}] ${request.method} ${request.url} → ${statusCode}: ${
-          Array.isArray(message) ? message.join('; ') : message
-        }`,
-        exception instanceof Error ? exception.stack : undefined,
-      );
+      // Server-side faults — including unmapped Prisma codes (P2003/P2000/P2010/
+      // P2024/…) and generic Errors, both mapped to 500 — are logged with the
+      // correlation id and stack so nothing is swallowed (CQ M1 / Sec L1).
+      this.logger.error(line, exception instanceof Error ? exception.stack : undefined);
+    } else if (statusCode >= HttpStatus.BAD_REQUEST) {
+      // Client errors (401/403/404/409/429/…) leave an audit trail for failed
+      // logins and throttle hits (CICD M-5 / security observability).
+      this.logger.warn(line);
     }
 
     response.status(statusCode).json({ statusCode, message, error });
@@ -49,7 +54,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const status = exception.getStatus();
       const res = exception.getResponse();
       if (typeof res === 'string') {
-        return { statusCode: status, message: res, error: exception.name };
+        // Use the HTTP reason phrase, not the exception class name (CQ L12).
+        return { statusCode: status, message: res, error: this.reasonPhrase(status) };
       }
       const body = res as { message?: string | string[]; error?: string };
       return {
@@ -91,10 +97,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
         error: 'Not Found',
       };
     }
+    // Any other Prisma code (P2003 FK violation, P2000 value too long, P2010 raw
+    // query failed, P2024 pool timeout, …) is a server-side fault, not a client
+    // error — surface a generic 500 (logged at `error` above) and never leak the
+    // underlying DB detail in the response body (CQ M1 / Sec L1).
     return {
-      statusCode: HttpStatus.BAD_REQUEST,
-      message: 'Database request error',
-      error: 'Bad Request',
+      statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+      message: 'Internal server error',
+      error: 'Internal Server Error',
     };
   }
 
