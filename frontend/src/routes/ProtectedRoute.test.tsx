@@ -63,12 +63,16 @@ describe('ProtectedRoute', () => {
 
   it('renders the protected children when authenticated', () => {
     mockedUseAuth.mockReturnValue(
-      authValue({ isAuthenticated: true, isLoading: false, user: {
-        id: 'user-1',
-        email: 'reviewer@101digital.io',
-        fullname: 'Reviewer',
-        createdAt: '2026-01-01T00:00:00.000Z',
-      } }),
+      authValue({
+        isAuthenticated: true,
+        isLoading: false,
+        user: {
+          id: 'user-1',
+          email: 'reviewer@101digital.io',
+          fullname: 'Reviewer',
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      }),
     );
     renderProtected();
 

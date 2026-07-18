@@ -12,6 +12,10 @@ export function LoginPage() {
   const location = useLocation();
   const [serverError, setServerError] = useState<string | null>(null);
 
+  // Where to land after auth: the route the user was bounced from, else home.
+  const redirectTo =
+    (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? '/';
+
   const {
     register,
     handleSubmit,
@@ -23,17 +27,14 @@ export function LoginPage() {
 
   // Already logged in → go home.
   if (!isLoading && isAuthenticated) {
-    const from = (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? '/';
-    return <Navigate to={from} replace />;
+    return <Navigate to={redirectTo} replace />;
   }
 
   const onSubmit = async (values: LoginFormValues) => {
     setServerError(null);
     try {
       await login(values.email, values.password);
-      const from =
-        (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? '/';
-      navigate(from, { replace: true });
+      navigate(redirectTo, { replace: true });
     } catch (error) {
       setServerError(getApiErrorMessage(error, 'Invalid email or password'));
     }

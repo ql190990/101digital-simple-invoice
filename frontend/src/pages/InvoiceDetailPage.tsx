@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { Link, useParams } from 'react-router-dom';
 import { Spinner } from '../components/Spinner';
 import { StatusBadge } from '../components/StatusBadge';
@@ -6,13 +7,20 @@ import { formatDate, formatMoney } from '../lib/format';
 
 export function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: invoice, isLoading, isError } = useInvoice(id);
+  const { data: invoice, isLoading, isError, error } = useInvoice(id);
 
   if (isLoading) return <Spinner label="Loading invoice…" />;
   if (isError || !invoice) {
+    // Only a genuine 404 means "not found"; a 500/network fault is something else
+    // and must not masquerade as a missing invoice (CQ M3).
+    const isNotFound = axios.isAxiosError(error) && error.response?.status === 404;
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
-        <p className="text-sm text-red-600">Invoice not found.</p>
+        <p className="text-sm text-red-600">
+          {isNotFound
+            ? 'Invoice not found.'
+            : 'Something went wrong loading this invoice. Please try again.'}
+        </p>
         <Link to="/" className="mt-3 inline-block text-sm font-medium text-brand-600">
           ← Back to invoices
         </Link>
