@@ -34,7 +34,8 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://simpleinvoice:simpleinvoice@localhost:5432/simpleinvoice_test?schema=public
-      JWT_SECRET: ci_test_secret_value_1234567890
+      # Must be >= 32 chars to satisfy env.validation's @MinLength(32) (Sec H1).
+      JWT_SECRET: ci_test_secret_value_at_least_32_chars_long
       JWT_EXPIRES_IN: '3600'
       APP_TIMEZONE: UTC
     steps:
