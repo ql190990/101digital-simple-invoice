@@ -7,8 +7,10 @@ import {
   IsDateString,
   IsEmail,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -88,14 +90,20 @@ export class CreateInvoiceDto {
   @MaxLength(1000)
   description?: string;
 
+  // Bounded to the persisted column precision Decimal(5,2) → max 999.99 (Sec L5).
   @ApiPropertyOptional({ example: 10, default: 10, description: 'Tax percent, non-negative' })
   @IsOptional()
+  @IsNumber({}, { message: 'taxPercent must be a number' })
   @Min(0, { message: 'taxPercent must not be negative' })
+  @Max(999.99, { message: 'taxPercent must not exceed 999.99' })
   taxPercent?: number;
 
+  // Bounded to the persisted column precision Decimal(12,2) → max 9999999999.99 (Sec L5).
   @ApiPropertyOptional({ example: 20, default: 0, description: 'Absolute discount amount' })
   @IsOptional()
+  @IsNumber({}, { message: 'discount must be a number' })
   @Min(0, { message: 'discount must not be negative' })
+  @Max(9999999999.99, { message: 'discount must not exceed 9999999999.99' })
   discount?: number;
 
   @ApiProperty({ type: [CreateInvoiceItemDto], description: 'Line items (one required)' })

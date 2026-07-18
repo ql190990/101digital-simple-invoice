@@ -57,19 +57,22 @@ export class InvoicesService {
         customerEmail: dto.customerEmail,
         customerMobile: dto.customerMobile ?? null,
         customerAddress: dto.customerAddress ?? null,
-        taxPercent: new Prisma.Decimal(taxPercent),
-        invoiceSubTotal: new Prisma.Decimal(totals.subTotal.toString()),
-        totalTax: new Prisma.Decimal(totals.taxAmount.toString()),
-        totalDiscount: new Prisma.Decimal(discount),
-        totalAmount: new Prisma.Decimal(totals.totalAmount.toString()),
-        totalPaid: new Prisma.Decimal(0),
-        balanceAmount: new Prisma.Decimal(totals.balanceAmount.toString()),
+        // Pass domain-native values (decimal.js Decimal / number); the
+        // repository owns the Prisma.Decimal conversion so this service stays
+        // persistence-agnostic (Arch M1).
+        taxPercent,
+        invoiceSubTotal: totals.subTotal,
+        totalTax: totals.taxAmount,
+        totalDiscount: discount,
+        totalAmount: totals.totalAmount,
+        totalPaid: 0,
+        balanceAmount: totals.balanceAmount,
         createdBy: userId,
         // New invoices always start as Draft (BL-07); the schema default enforces it.
         items: dto.items.map((i) => ({
           name: i.name,
           quantity: i.quantity,
-          rate: new Prisma.Decimal(i.rate),
+          rate: i.rate,
         })),
       });
 

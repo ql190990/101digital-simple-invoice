@@ -13,6 +13,11 @@ export enum SortOrdering {
   DESC = 'DESC',
 }
 
+/**
+ * Query-filterable effective statuses. This mirrors the domain
+ * `EFFECTIVE_STATUSES` set (`invoices/domain/invoice-status.ts`) — the domain
+ * union is the source of truth; keep the two in sync (Arch M2 / CQ M4).
+ */
 export enum EffectiveStatusFilter {
   Draft = 'Draft',
   Pending = 'Pending',

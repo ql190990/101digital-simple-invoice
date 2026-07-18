@@ -1,3 +1,5 @@
+import { toDateKey } from '../../invoices/domain/derive-invoice-status';
+
 /**
  * Return "today" as a UTC-midnight Date whose calendar components (Y/M/D) are the
  * current date in the given IANA timezone (ADR A4). Because the domain function
@@ -19,7 +21,11 @@ export function getTodayInTimezone(timeZone: string, now: Date = new Date()): Da
   return new Date(Date.UTC(year, month - 1, day));
 }
 
-/** Format a Date as a `YYYY-MM-DD` string from its UTC components. */
+/**
+ * Format a Date as a `YYYY-MM-DD` string from its UTC components. Delegates to
+ * the pure domain `toDateKey` so there is a single implementation (CQ L1). The
+ * util→domain import direction is intentional; the domain stays framework-free.
+ */
 export function formatDateKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return toDateKey(date);
 }
