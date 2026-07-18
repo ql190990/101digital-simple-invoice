@@ -291,7 +291,7 @@ Copy `.env.example` → `.env`. All keys are documented there; summary:
 | `APP_TIMEZONE` | `UTC` | Timezone for date-only "today" comparisons |
 | `CORS_ORIGINS` | localhost list | CORS allow-list (unused behind nginx proxy) |
 | `MAX_PAGE_SIZE` | `100` | Pagination clamp |
-| `THROTTLE_TTL` / `THROTTLE_LIMIT` | `60` / `10` | Rate limiting window/limit |
+| `THROTTLE_TTL` / `THROTTLE_LIMIT` | `60` / `100` | Global rate limiting window/limit (login is stricter: 5/60s) |
 | `SEED_ON_BOOT` | `false` (`true` in compose) | Migrate + seed on backend startup |
 | `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` / `SEED_USER_FULLNAME` | reviewer account | Default seeded user |
 | `FRONTEND_PORT` | `8080` | SPA port |
@@ -317,6 +317,10 @@ npm run test:e2e --workspace backend
 # Frontend tests (Vitest + RTL + MSW, with coverage)
 npm run test --workspace frontend
 
+# Full browser E2E (Playwright) — brings up the Docker stack, runs desktop + mobile flows
+# Uses the system Google Chrome; needs Docker. Set E2E_KEEP_STACK=1 to keep the stack up.
+npm run test:e2e:pw
+
 # Lint & typecheck across both workspaces
 npm run lint
 npm run typecheck
@@ -334,6 +338,11 @@ npm run typecheck
 - **Frontend**: login flow (client validation, success redirect, generic error), list
   (search / filter / sort / pagination / navigation), create-invoice validation + live
   totals preview.
+- **Browser E2E** (Playwright, `e2e/`): 23 tests across desktop + mobile viewports driving
+  the real Docker stack through nginx — auth (redirect/validation/invalid/valid), list
+  (search / derived-Overdue filter / sort / server pagination / row→detail), detail
+  (fields + totals + not-found), create (validation / server-computed success / duplicate
+  409). Logs in once via `storageState` to respect the login rate limit.
 
 ---
 
@@ -341,6 +350,8 @@ npm run typecheck
 
 - **GitHub Actions CI** (`.github/workflows/ci.yml`): install → lint → typecheck →
   unit + e2e + frontend tests (with a Postgres service) → build → docker image builds.
+- **Playwright browser E2E** (`e2e/`): 23 desktop + mobile tests driving the full Docker
+  stack end-to-end (see §10). Run with `npm run test:e2e:pw`.
 - **`GET /health`** with a real DB connectivity check.
 - **Request correlation IDs** + structured request logging.
 - **ESLint + Prettier** configured and passing across both workspaces.
