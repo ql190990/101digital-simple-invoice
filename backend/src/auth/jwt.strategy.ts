@@ -25,6 +25,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: config.getOrThrow<string>('JWT_SECRET'),
+      // Pin the signing algorithm so a future asymmetric-key change cannot open
+      // an algorithm-confusion foot-gun (Sec L4, CWE-347).
+      algorithms: ['HS256'],
     });
   }
 

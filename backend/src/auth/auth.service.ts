@@ -9,6 +9,17 @@ import { JwtPayload } from './jwt.strategy';
 
 export const BCRYPT_COST = 12;
 
+/**
+ * A real bcrypt digest of a fixed, non-secret password, computed once at module
+ * load. Used as a stand-in hash when the email is unknown so that
+ * `bcrypt.compare` still runs the full KDF instead of short-circuiting. This
+ * keeps the "unknown email" and "wrong password" paths timing-equivalent and
+ * closes the user-enumeration side-channel (Sec M1, AUTH-07). It is a valid
+ * 60-char hash at cost `BCRYPT_COST`, pinned by a unit test so it cannot
+ * silently regress into a malformed literal.
+ */
+export const DUMMY_PASSWORD_HASH = bcrypt.hashSync('simpleinvoice-dummy-password', BCRYPT_COST);
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -25,14 +36,14 @@ export class AuthService {
   /**
    * Validate credentials and issue a JWT. Returns one generic error for both
    * "unknown email" and "wrong password" so account existence is not leaked
-   * (AUTH-07). A dummy compare runs when the email is unknown to blunt timing
-   * side-channels.
+   * (AUTH-07). When the email is unknown we still run `bcrypt.compare` against
+   * `DUMMY_PASSWORD_HASH` (a real, valid digest), so both failure paths perform
+   * the same KDF work and stay timing-equivalent — no user-enumeration oracle.
    */
   async login(email: string, password: string): Promise<LoginResponseDto> {
     const user = await this.usersService.findByEmail(email);
 
-    const hash =
-      user?.passwordHash ?? '$2a$12$0000000000000000000000000000000000000000000000000000';
+    const hash = user?.passwordHash ?? DUMMY_PASSWORD_HASH;
     const passwordMatches = await bcrypt.compare(password, hash);
 
     if (!user || !passwordMatches) {

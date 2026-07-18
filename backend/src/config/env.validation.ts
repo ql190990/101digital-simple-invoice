@@ -1,5 +1,6 @@
-import { plainToInstance, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -38,8 +39,8 @@ export class EnvironmentVariables {
   BACKEND_PORT = 3000;
 
   @IsString()
-  @MinLength(16, {
-    message: 'JWT_SECRET must be at least 16 characters. Set a long random string.',
+  @MinLength(32, {
+    message: 'JWT_SECRET must be at least 32 characters. Set a long random string.',
   })
   JWT_SECRET!: string;
 
@@ -75,6 +76,17 @@ export class EnvironmentVariables {
   @Min(1)
   @IsOptional()
   THROTTLE_LIMIT = 100;
+
+  // Gates the Swagger UI / OpenAPI schema (Sec M5). Kept ON by default so the
+  // Docker demo still exposes /api/docs; set ENABLE_SWAGGER=false to hide it in
+  // a real deployment. `@Type(() => String)` keeps the raw env string intact so
+  // `enableImplicitConversion` cannot pre-coerce 'false' to a truthy boolean
+  // before the transform below normalises it.
+  @Type(() => String)
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  @IsOptional()
+  ENABLE_SWAGGER = true;
 }
 
 /**
@@ -93,6 +105,16 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   if (errors.length > 0) {
     const details = errors.map((e) => Object.values(e.constraints ?? {}).join(', ')).join('\n  - ');
     throw new Error(`Invalid environment configuration:\n  - ${details}`);
+  }
+
+  // Soft guard (Sec H1): the committed compose default secret must never protect
+  // a real deployment. We warn rather than throw so the one-command demo keeps
+  // booting; a real deployment is expected to set its own JWT_SECRET.
+  if (validated.NODE_ENV === NodeEnv.Production && validated.JWT_SECRET.includes('please_change')) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[SECURITY] JWT_SECRET is the demo placeholder — set a real secret for any real deployment',
+    );
   }
 
   return validated;
