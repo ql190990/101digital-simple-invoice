@@ -74,7 +74,7 @@ export class EnvironmentVariables {
   @IsInt()
   @Min(1)
   @IsOptional()
-  THROTTLE_LIMIT = 10;
+  THROTTLE_LIMIT = 100;
 }
 
 /**
