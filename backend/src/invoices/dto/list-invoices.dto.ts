@@ -27,8 +27,11 @@ export enum EffectiveStatusFilter {
 
 /**
  * Query parameters for GET /invoices. `sortBy` and `ordering` are whitelisted
- * via enums and never interpolated into SQL (API-10). `pageSize` is clamped to a
- * configurable maximum by the service (API-09).
+ * via enums and never interpolated into SQL (API-10).
+ *
+ * `pageSize` is bounded twice (API-09): this DTO **rejects** anything above 100 with a
+ * 400, and the service additionally clamps to `MAX_PAGE_SIZE` (≤ 100) as defence in
+ * depth — so `MAX_PAGE_SIZE` can only ever lower the effective ceiling, never raise it.
  */
 export class ListInvoicesDto {
   @ApiPropertyOptional({ minimum: 1, default: 1 })
