@@ -253,6 +253,10 @@ Base URL: backend root (no `/api` prefix on routes). Full interactive docs at
 | POST   | `/invoices`     | ✓    | Create invoice (Draft, totals computed server-side) |
 | GET    | `/health`       | ✗    | Health check with DB connectivity                   |
 
+The Invoice List screen exposes a **Rows per page** selector (10 / 25 / 50 / 100) that drives
+the `pageSize` query param, so the page size is configurable from the UI as well as the API
+(spec §2.1.2); changing it returns to page 1.
+
 **`GET /invoices` query params:** `page` (default 1), `pageSize` (default 10, max 100),
 `sortBy` (`invoiceDate`|`dueDate`|`totalAmount`, default `invoiceDate`), `ordering`
 (`ASC`|`DESC`, default `DESC`), `status` (`Draft`|`Pending`|`Paid`|`Overdue`),
@@ -323,7 +327,7 @@ Copy `.env.example` → `.env`. All keys are documented there; summary:
 | `APP_TIMEZONE`                                                  | `UTC`                       | Timezone for date-only "today" comparisons                                                                                                                                                                                           |
 | `ENABLE_SWAGGER`                                                | `true`                      | Gates the interactive API docs at `/api/docs`; set `false` to disable                                                                                                                                                                |
 | `CORS_ORIGINS`                                                  | localhost list              | CORS allow-list (unused behind nginx proxy)                                                                                                                                                                                          |
-| `MAX_PAGE_SIZE`                                                 | `100`                       | Pagination clamp                                                                                                                                                                                                                     |
+| `MAX_PAGE_SIZE`                                                 | `100`                       | Server-side pagination clamp (1–100). Can only **lower** the ceiling — the DTO already rejects `pageSize > 100` with a 400.                                                                                                          |
 | `THROTTLE_TTL` / `THROTTLE_LIMIT`                               | `60` / `100`                | Global rate limiting window/limit (login is stricter: 5/60s)                                                                                                                                                                         |
 | `SEED_ON_BOOT`                                                  | `false` (`true` in compose) | Migrate + seed on backend startup. On boot the seed runs in **seed-if-empty** mode — it skips (no truncate) when the DB already holds data, so container restarts don't wipe it. A manual `npm run seed` still truncates and reseeds |
 | `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` / `SEED_USER_FULLNAME` | reviewer account            | Default seeded user                                                                                                                                                                                                                  |

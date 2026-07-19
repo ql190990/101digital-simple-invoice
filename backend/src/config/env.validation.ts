@@ -58,10 +58,13 @@ export class EnvironmentVariables {
   @IsOptional()
   CORS_ORIGINS = 'http://localhost:5173,http://localhost:8080';
 
+  // Capped at 100 to match the hard `@Max(100)` on ListInvoicesDto.pageSize: the DTO
+  // rejects anything larger *before* the service clamp runs, so allowing a higher value
+  // here would be dead config that silently promises more than the API accepts.
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(1000)
+  @Max(100)
   @IsOptional()
   MAX_PAGE_SIZE = 100;
 

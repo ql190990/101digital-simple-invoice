@@ -16,10 +16,14 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-simpleinvoice}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-simpleinvoice}
       POSTGRES_DB: ${POSTGRES_DB:-simpleinvoice}
-    ports:
-      # Bound to loopback so the DB (with demo default creds) is not exposed on the
-      # host's external interfaces — reach it via the compose network (Sec M4 / CICD M-2).
-      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
+    # The DB port is deliberately NOT published (Sec M4 / CICD M-2): the backend reaches
+    # it over the compose network, so publishing it would only expose demo-credential
+    # Postgres to the host — and would break `docker compose up` for anyone already
+    # running Postgres on 5432. To inspect the DB, use the container directly:
+    #   docker compose exec db psql -U simpleinvoice -d simpleinvoice
+    # To expose it anyway (e.g. for a GUI client), set POSTGRES_PORT and uncomment:
+    # ports:
+    #   - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
