@@ -129,6 +129,54 @@ describe('InvoiceListPage', () => {
     expect(screen.getByText(/page 1 of 3/i)).toBeInTheDocument();
   });
 
+  it('changes the page size and resets to the first page (spec §2.1.2 configurable page size)', async () => {
+    const user = userEvent.setup();
+    const many: InvoiceListItem[] = Array.from({ length: 25 }, (_, i) => ({
+      invoiceId: `ps-${i}`,
+      invoiceNumber: `PS-${String(i).padStart(3, '0')}`,
+      customerFullname: `Customer ${i}`,
+      invoiceDate: '2026-01-01',
+      dueDate: '2099-01-01',
+      totalAmount: 100 + i,
+      currency: 'AUD',
+      currencySymbol: 'AU$',
+      status: 'Pending',
+    }));
+    const requestedPageSizes: number[] = [];
+    server.use(
+      http.get('/api/invoices', ({ request }) => {
+        const url = new URL(request.url);
+        const page = Number(url.searchParams.get('page') ?? '1');
+        const pageSize = Number(url.searchParams.get('pageSize') ?? '10');
+        requestedPageSizes.push(pageSize);
+        const start = (page - 1) * pageSize;
+        return HttpResponse.json({
+          data: many.slice(start, start + pageSize),
+          paging: { page, pageSize, total: many.length },
+        });
+      }),
+    );
+
+    setup();
+    await waitForRows();
+
+    // Default: 10 per page over 25 rows → 3 pages.
+    expect(screen.getAllByTestId('invoice-row')).toHaveLength(10);
+    expect(screen.getByText(/page 1 of 3/i)).toBeInTheDocument();
+
+    // Move off page 1 so we can prove the reset.
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    await waitFor(() => expect(screen.getByText(/page 2 of 3/i)).toBeInTheDocument());
+
+    // Switch to 25 per page → one page, back on page 1, all rows rendered.
+    await user.selectOptions(screen.getByLabelText(/rows per page/i), '25');
+    await waitFor(() => expect(screen.getAllByTestId('invoice-row')).toHaveLength(25));
+    expect(screen.getByText(/page 1 of 1/i)).toBeInTheDocument();
+
+    // The new size was actually sent to the server (server-side pagination, not client slicing).
+    expect(requestedPageSizes).toContain(25);
+  });
+
   it('shows an error state when the list request fails', async () => {
     server.use(http.get('/api/invoices', () => HttpResponse.json({}, { status: 500 })));
     setup();

@@ -12,7 +12,10 @@ const SORT_OPTIONS: { value: SortBy; label: string }[] = [
   { value: 'dueDate', label: 'Due date' },
   { value: 'totalAmount', label: 'Total amount' },
 ];
-const PAGE_SIZE = 10;
+// Spec §2.1.2: server-side pagination with a *configurable* page size. The values
+// stay within the API's hard cap of 100 (list-invoices.dto.ts `@Max(100)`).
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const DEFAULT_PAGE_SIZE = 10;
 
 export function InvoiceListPage() {
   const navigate = useNavigate();
@@ -22,6 +25,7 @@ export function InvoiceListPage() {
   const [sortBy, setSortBy] = useState<SortBy>('invoiceDate');
   const [ordering, setOrdering] = useState<Ordering>('DESC');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   // Debounce the keyword so we don't fire a request per keystroke.
   useEffect(() => {
@@ -35,19 +39,19 @@ export function InvoiceListPage() {
   const params = useMemo(
     () => ({
       page,
-      pageSize: PAGE_SIZE,
+      pageSize,
       sortBy,
       ordering,
       status: status === 'All' ? undefined : status,
       keyword: keyword || undefined,
     }),
-    [page, sortBy, ordering, status, keyword],
+    [page, pageSize, sortBy, ordering, status, keyword],
   );
 
   const { data, isLoading, isError, isFetching } = useInvoices(params);
 
   const total = data?.paging.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <div className="space-y-4">
@@ -182,11 +186,34 @@ export function InvoiceListPage() {
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-slate-500">
-          Page {page} of {totalPages}
-          {isFetching && <span className="ml-2 text-slate-400">updating…</span>}
-        </span>
+      <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label htmlFor="pageSize" className="text-slate-600">
+              Rows per page
+            </label>
+            <select
+              id="pageSize"
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                // Reset to the first page: the current page may not exist at the new size.
+                setPage(1);
+              }}
+              className="rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
+          <span className="text-slate-500">
+            Page {page} of {totalPages}
+            {isFetching && <span className="ml-2 text-slate-400">updating…</span>}
+          </span>
+        </div>
         <div className="flex gap-2">
           <button
             type="button"

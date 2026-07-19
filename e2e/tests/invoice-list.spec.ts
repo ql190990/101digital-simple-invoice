@@ -103,6 +103,25 @@ test.describe('Invoice list', () => {
       .toBe(page1First);
   });
 
+  test('page size is configurable and applied server-side (spec §2.1.2)', async ({ page }) => {
+    const rows = page.getByTestId('invoice-row');
+    const pageSizeSelect = page.getByLabel(/rows per page/i);
+
+    // Default page size is 10 (the seeded dataset has >25 invoices, so a full page).
+    await expect(rows).toHaveCount(10);
+
+    // Switch to 25 → the server returns 25 rows in one request.
+    await pageSizeSelect.selectOption('25');
+    await expect(rows).toHaveCount(25);
+
+    // Switching size returns to page 1 (the old page may not exist at the new size).
+    await expect(page.getByText(/Page 1 of/)).toBeVisible();
+
+    // And back down again.
+    await pageSizeSelect.selectOption('10');
+    await expect(rows).toHaveCount(10);
+  });
+
   test('clicking a row navigates to its detail page', async ({ page }) => {
     await page.getByLabel(/search/i).fill(ANCHOR.number);
     await expect(page.getByTestId('invoice-row')).toHaveCount(1);
