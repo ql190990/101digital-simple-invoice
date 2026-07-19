@@ -95,7 +95,8 @@ This will:
 
 1. Start PostgreSQL and wait until it is **healthy** (`pg_isready`).
 2. Start the backend, which on boot runs `prisma migrate deploy` and then **seeds**
-   the database (because `SEED_ON_BOOT=true` is the compose default).
+   the database (because `SEED_ON_BOOT=true` is the compose default). You do **not**
+   need to run any migrate/seed command yourself — see §4 for re-seeding on demand.
 3. Start nginx serving the SPA and proxying `/api`.
 
 Open **http://localhost:8080** and log in.
@@ -123,22 +124,38 @@ Requires Node 20+ and a local PostgreSQL 16 (with permission to create the
 # 1. Install all workspaces
 npm install
 
-# 2. Configure environment
-cp .env.example .env
-#    Edit .env: set DATABASE_URL to your local Postgres, and set JWT_SECRET.
+# 2. Create the database role + database (skip if they already exist)
+sudo -u postgres psql -c "CREATE USER simpleinvoice WITH PASSWORD 'your_password';"
+sudo -u postgres psql -c "CREATE DATABASE simpleinvoice OWNER simpleinvoice;"
 
-# 3. Generate the Prisma client, apply migrations, and seed
+# 3. Configure environment
+cp .env.example .env
+#    Edit .env: set DATABASE_URL (matching the password above) and JWT_SECRET (>= 32 chars).
+
+# 4. Generate the Prisma client, apply migrations, and seed
 npm run prisma:generate
-npm run prisma:migrate --workspace backend   # runs `prisma migrate deploy`
+npm run prisma:migrate        # prisma migrate deploy
 npm run seed
 
-# 4. Run backend + frontend together
+# 5. Run backend + frontend together
 npm run dev
 ```
 
 - Backend: http://localhost:3000 (Swagger at http://localhost:3000/api/docs)
 - Frontend (Vite dev server): http://localhost:5173 — it proxies `/api` to the
   backend, so log in there with the same credentials.
+
+> **Run the Prisma scripts from the repo root.** The Prisma CLI loads `.env` from the
+> working directory, so the root scripts above pass `--schema backend/prisma/schema.prisma`
+> and pick up the root `.env`. Running `npm run prisma:migrate --workspace backend`
+> instead sets the working directory to `backend/`, where there is no `.env`, and Prisma
+> fails with `P1012: Environment variable not found: DATABASE_URL`.
+
+> **The Dockerised database is not reachable from the host.** `docker-compose.yml`
+> deliberately does not publish port 5432 (see §8), so these local commands talk to a
+> PostgreSQL installed on your machine — not the compose one. To point them at the compose
+> database instead, uncomment the `ports:` mapping on the `db` service (use a free host
+> port, e.g. `POSTGRES_PORT=5433`, if 5432 is already taken) and update `DATABASE_URL`.
 
 ---
 
@@ -155,19 +172,50 @@ Seeded by `backend/prisma/seed.ts`. Configurable via `SEED_USER_EMAIL` /
 
 ## 4. Seeding the database
 
+The seed inserts **1 default user**, the **Appendix A anchor invoice**, and **40 generated
+invoices** (41 total → ≥3 pages at the default page size of 10) with a balanced spread of
+statuses, dates, amounts, currencies and customers. A **fixed random seed** (mulberry32)
+makes the dataset reproducible across machines.
+
+### With Docker (the normal path)
+
+**Nothing to run — it seeds itself.** `docker compose up` executes `prisma migrate deploy`
+and then the seed on backend boot (`SEED_ON_BOOT=true` is the compose default):
+
 ```bash
-npm run seed          # from the repo root (delegates to the backend workspace)
+docker compose up -d --build
+docker compose logs backend | grep -i seed     # verify
 ```
 
-- **Idempotent**: the script truncates `invoice_items`, `invoices`, and `users`
-  (`TRUNCATE ... RESTART IDENTITY CASCADE`) then re-inserts, so re-running never
-  crashes on unique constraints (ADR D6).
-- Seeds **1 default user**, the **Appendix A anchor invoice**, and **40 generated
-  invoices** (41 total → ≥3 pages at the default page size of 10) with a balanced
-  spread of statuses, dates, amounts, currencies, and customers.
-- Uses a **fixed random seed** (mulberry32) so the dataset is reproducible.
-- In Docker, seeding also runs automatically on backend boot via the entrypoint when
-  `SEED_ON_BOOT=true` (the compose default).
+On boot the seed runs in **seed-if-empty** mode: if the database already holds data it logs
+`Database already seeded — skipping (SEED_IF_EMPTY)` and does **not** truncate. Restarting a
+container therefore never wipes your data.
+
+**Re-seed on demand** (destructive: truncates, then re-inserts the fixture set):
+
+```bash
+docker compose exec backend node dist-seed/prisma/seed.js
+```
+
+**Start completely fresh** (drops the volume, so the next boot seeds again):
+
+```bash
+docker compose down -v && docker compose up -d
+```
+
+### Without Docker (local PostgreSQL)
+
+Run from the **repo root** so the Prisma CLI picks up the root `.env` (see §2 Option B):
+
+```bash
+npm run seed
+```
+
+- **Idempotent**: truncates `invoice_items`, `invoices` and `users`
+  (`TRUNCATE ... RESTART IDENTITY CASCADE`) then re-inserts, so re-running never trips a
+  unique constraint (ADR D6). Unlike the boot path it always reseeds — that is what makes it
+  usable as a "reset my data" command.
+- Requires migrations to have been applied first (`npm run prisma:migrate`).
 
 ---
 
