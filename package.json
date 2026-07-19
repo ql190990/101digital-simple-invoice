@@ -8,15 +8,20 @@
     "frontend"
   ],
   "scripts": {
-    "seed": "npm run seed --workspace backend",
+    "seed": "prisma db seed --schema backend/prisma/schema.prisma",
     "dev": "concurrently -n backend,frontend -c blue,magenta \"npm run dev --workspace backend\" \"npm run dev --workspace frontend\"",
     "build": "npm run build --workspace backend && npm run build --workspace frontend",
     "test": "npm run test --workspace backend && npm run test --workspace frontend",
     "lint": "npm run lint --workspace backend && npm run lint --workspace frontend",
     "typecheck": "npm run typecheck --workspace backend && npm run typecheck --workspace frontend",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
-    "prisma:generate": "npm run prisma:generate --workspace backend",
+    "prisma:generate": "prisma generate --schema backend/prisma/schema.prisma",
+    "prisma:migrate": "prisma migrate deploy --schema backend/prisma/schema.prisma",
     "test:e2e:pw": "playwright test -c e2e/playwright.config.ts"
+  },
+  "//prisma": "Prisma CLI loads .env from the working directory. These scripts run from the repo ROOT (via --schema) so the root .env is picked up; running them inside the backend workspace would look for backend/.env and fail with P1012.",
+  "prisma": {
+    "seed": "ts-node --transpile-only -P backend/tsconfig.json backend/prisma/seed.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
