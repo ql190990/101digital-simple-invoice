@@ -19,7 +19,10 @@ COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
+# Use 127.0.0.1, not localhost: nginx listens on IPv4 (:80) but busybox wget resolves
+# "localhost" to IPv6 ::1 first inside Alpine, so the probe gets "connection refused"
+# and the container is reported unhealthy even though it serves fine.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -q -O /dev/null http://localhost/ || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
